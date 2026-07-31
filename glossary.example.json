@@ -1,0 +1,11 @@
+{
+  "asr_prompt": "Подсказка для Whisper: перечислите здесь имена собственные, названия продуктов и специфичные термины, которые встречаются в записи, через запятую.",
+  "style_guide": "Neutral-but-warm conversational register, as used in Philippine broadcast and online media. Natural Taglish is acceptable where a pure Tagalog word would sound stilted (technology, business, medical terms). Address the listener as 'kayo' in formal material and 'ka' in casual material. Keep proper names, brand names and numbers unchanged.",
+  "glossary": {
+    "подписка": "subscription",
+    "личный кабинет": "account dashboard",
+    "поддержка": "customer support",
+    "тариф": "plan",
+    "обновление": "update"
+  }
+}

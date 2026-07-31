@@ -1,0 +1,18 @@
+# --- core ---
+openai>=1.60.0            # Whisper (STT) + chat models (перевод)
+numpy>=1.26
+soundfile>=0.12
+
+# --- TTS (выберите один; Google стоит по умолчанию) ---
+google-cloud-texttospeech>=2.16   # fil-PH голоса
+# requests>=2.31                  # нужен только для ElevenLabs-провайдера
+
+# --- streaming режим (микрофон) ---
+sounddevice>=0.4.6
+# webrtcvad>=2.0.10      # опционально: точнее в шумной комнате.
+# setuptools<81          # ...но webrtcvad 2.0.10 импортирует pkg_resources,
+                         # которого нет ни в Python 3.12+, ни в setuptools 81+.
+                         # Без него используется встроенный EnergyVad на numpy.
+
+# --- прочее ---
+python-dotenv>=1.0

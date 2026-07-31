@@ -1,0 +1,39 @@
+# --- секреты: ничего из этого не должно попасть в репозиторий ---
+.env
+.env.*
+!.env.example
+
+# JSON-ключи сервисных аккаунтов Google (glossary.example.json — не ключ, он нужен)
+*service-account*.json
+*credentials*.json
+*-key.json
+key*.json
+gcp-*.json
+application_default_credentials.json
+
+# прочие форматы ключей
+*.pem
+*.p12
+*.pfx
+
+# --- окружение и артефакты ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.Python
+
+# результаты прогонов: аудио, субтитры, временные файлы
+out/
+*.mp3
+*.wav
+*.m4a
+*.aac
+*.mp4
+*.mov
+*.srt
+
+# --- macOS / редакторы ---
+.DS_Store
+.idea/
+.vscode/
