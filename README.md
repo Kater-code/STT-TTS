@@ -1,130 +1,44 @@
-# ru2tl — русская речь на входе, тагальская речь на выходе
+# ru2tl: Russian speech in, Tagalog speech out
 
-Пайплайн из трёх стадий с общим ядром и двумя обёртками:
+A three-stage dubbing pipeline with one shared core and two entry points: file-to-file batch and live microphone streaming.
 
 ```
-аудио (ru) ──► ASR ──► MT ──► TTS ──► аудио (tl)
-              Whisper  GPT   Google fil-PH
+audio (ru) ──► ASR ──► MT ──► TTS ──► audio (tl)
+             Whisper  GPT   Google fil-PH
 ```
 
-| Стадия | Провайдер по умолчанию | Почему |
+| Stage | Default provider | Why |
 |---|---|---|
-| ASR | OpenAI `whisper-1` | русский — одна из самых сильных локалей Whisper; `verbose_json` отдаёт посегментные таймкоды, без которых не собрать дубляж |
-| MT | OpenAI `gpt-4o` | перевод пачками с общим контекстом + глоссарий; тагальский покрыт хорошо |
-| TTS | Google Cloud `fil-PH` | самое надёжное покрытие тагальского среди облачных TTS (4 Standard + 4 WaveNet голоса) |
+| ASR | OpenAI `whisper-1` | Russian is one of Whisper's strongest locales; `verbose_json` returns per-segment timestamps needed for dubbing |
+| MT | OpenAI `gpt-4o` | batched translation with shared context and a glossary |
+| TTS | Google Cloud `fil-PH` | most reliable Tagalog coverage among cloud TTS (Standard and WaveNet voices) |
 
-Альтернативный TTS — ElevenLabs `eleven_multilingual_v2` (нужен, если хотите клонировать голос исходного диктора).
+ElevenLabs `eleven_multilingual_v2` is available as an alternative TTS when the source speaker's voice should be cloned.
 
-## Установка
+## Setup
 
 ```bash
-cd ~/ru2tl
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-brew install ffmpeg          # обязателен: декодирование и подгонка темпа
-
-cp .env.example .env         # впишите ключи
+brew install ffmpeg
+cp .env.example .env
 ```
 
-Нужны два доступа:
-- `OPENAI_API_KEY` — на STT и перевод сразу;
-- `GOOGLE_APPLICATION_CREDENTIALS` — путь к service-account JSON проекта с включённым Cloud Text-to-Speech API.
+Needs `OPENAI_API_KEY` and `GOOGLE_APPLICATION_CREDENTIALS` (service account with Cloud Text-to-Speech enabled).
 
-## Использование
-
-**Батч — файл в файл** (основной режим, качество выше):
+## Usage
 
 ```bash
-python -m ru2tl file input.mp4 output.wav
-python -m ru2tl file podcast.mp3 dub.mp3 --glossary glossary.example.json
-```
-
-Рядом с выходным файлом появятся `output.ru.srt` и `output.tl.srt`.
-
-**Стриминг — микрофон в динамики:**
-
-```bash
-python -m ru2tl devices          # посмотреть номера устройств
+python -m ru2tl file input.mp4 output.wav --glossary glossary.example.json
 python -m ru2tl stream --vad 2 --silence-ms 750
+python -m ru2tl voices
 ```
 
-**Служебное:**
+Batch mode also writes `output.ru.srt` and `output.tl.srt` next to the output.
 
-```bash
-python -m ru2tl voices           # какие fil-PH голоса доступны проекту
-```
+## Design notes
 
-## Как это устроено
-
-`ru2tl/pipeline.py` — единственное место, где стадии соединены. Обе обёртки
-(`cli.py`, `stream.py`) вызывают один и тот же `SpeechPipeline`; провайдеры
-спрятаны за тремя протоколами в `providers/base.py`, так что подменить,
-например, Whisper на Deepgram — это один новый файл и одна строка в
-`providers/__init__.py`.
-
-### Перевод
-
-Реплики уходят пачками по 40 с нумерацией, ответ приходит structured
-output'ом (`json_schema`, `strict: true`) — склейка `id → перевод` не зависит
-от того, как модель отформатировала текст. Пачка нужна не ради экономии, а
-ради связности: реплика, переведённая в одиночку, теряет род, число и
-референты. На стыке пачек подмешиваются три предыдущие пары.
-
-Системный промпт (стиль + глоссарий) стоит первым и байт в байт одинаков
-между запросами — так он попадает под автоматический prompt caching OpenAI.
-Кэш включается примерно от 1024 токенов префикса: короткий глоссарий его не
-наберёт, большой — наберёт.
-
-В стриминге схема не используется (лишняя задержка), вместо неё — скользящий
-контекст из последних трёх пар.
-
-### Сборка дубляжа
-
-Тагальский в среднем на 10–25% длиннее русского, поэтому реплики норовят
-наехать друг на друга. `audio.assemble_dub` сначала пробует ускорить реплику
-через `ffmpeg atempo` (не более 1.35×, дальше слышно), и только если не
-влезает — сдвигает следующую вправо, накапливая дрейф. Речь никогда не
-режется. Отключается флагом `--no-fit-timing`.
-
-### Задержка в стриминге
-
-Три потока связаны очередями, поэтому захват не простаивает, пока предыдущая
-реплика уходит в облако. Реальная задержка — длительность реплики плюс
-1.5–4 с на три сетевых вызова. Убрать её полностью нельзя: перевод требует
-законченной мысли, а порядок слов в тагальском не совпадает с русским, так
-что переводить пословно «на лету» здесь нельзя в принципе.
-
-## Что стоит настроить под свой материал
-
-1. **`glossary.example.json`** — самое сильное средство. `asr_prompt` чинит
-   имена собственные на распознавании, `glossary` фиксирует терминологию,
-   `style_guide` задаёт регистр (`kayo` против `ka`) и допустимость Taglish.
-2. **Голос** — `--voice fil-PH-Wavenet-B` (мужской). Полный список:
-   `python -m ru2tl voices`.
-3. **VAD** — если реплики рвутся посреди фразы, поднимите `--silence-ms`;
-   если наоборот склеиваются — опустите. По умолчанию работает встроенный
-   детектор на numpy (`EnergyVad`); в шумном помещении точнее `webrtcvad`, но
-   он тянет `pkg_resources`, которого нет ни в Python 3.12+, ни в setuptools
-   81+ — ставить его нужно вместе с `setuptools<81`, и тогда он подхватится
-   автоматически.
-
-## Стоимость (порядок величин, на час аудио)
-
-| Стадия | Примерно |
-|---|---|
-| Whisper | ~$0.36/час |
-| Перевод | десятки центов за час речи (≈9–10 тыс. слов) |
-| Google TTS WaveNet | ~$16 за 1 млн символов |
-
-Батч дешевле стриминга: там нет повторной отправки контекста на каждую реплику.
-
-## Известные ограничения
-
-- **Диаризация не реализована.** Все реплики озвучиваются одним голосом. Если
-  в записи несколько спикеров, нужен отдельный шаг диаризации (pyannote или
-  AssemblyAI) и маппинг «спикер → голос».
-- **Липсинк не делается** — только выравнивание по таймкодам реплик.
-- **Whisper галлюцинирует на тишине и музыке.** Длинные немузыкальные паузы
-  лучше вырезать заранее либо поднять агрессивность VAD.
-- **Качество тагальского TTS ниже, чем у английского** у всех провайдеров;
-  просодию длинных предложений стоит проверять на слух.
+- `ru2tl/pipeline.py` is the only place where stages are connected. Both entry points call the same `SpeechPipeline`; providers sit behind three protocols in `providers/base.py`, so swapping Whisper for another ASR is one new file.
+- Lines are translated in batches of 40 with numbering and a strict JSON schema, so mapping `id -> translation` does not depend on model formatting. Batching keeps gender, number and references consistent; the last three pairs are carried across batch boundaries.
+- The system prompt (style plus glossary) is byte-identical across requests, so it is eligible for OpenAI prompt caching.
+- Streaming skips the schema to save latency and uses a sliding context of the last three pairs instead.
